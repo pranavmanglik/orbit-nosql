@@ -1,9 +1,9 @@
 # Orbit NoSQL
 
-`orbit-nosql` is the provider-neutral NoSQL capability layer. `orbit-data` remains the common
-repository contract shared by SQL and NoSQL implementations. This initial version uses Pydantic
-models as its entity type and defines how an application obtains an `orbit_data.Repository` for a
-named logical collection without importing a vendor driver.
+`orbit-nosql` is the provider-neutral NoSQL capability layer. `orbit-data` is the common repository
+contract shared by SQL and NoSQL implementations. This package defines how an application obtains
+an `orbit_data.Repository` for a named logical collection, using a Pydantic model as the entity
+type, without importing a vendor driver.
 
 Providers live in separate packages. `orbit-nosql-mongo` supplies a document collection implementation;
 `orbit-cache-redis` may expose a key-value backed repository alongside its separate cache capability.
@@ -26,19 +26,21 @@ async def load_session(database: NoSQLDatabase, session_id: str) -> Session | No
     return await sessions.get(session_id)
 ```
 
-The returned repository follows `orbit-data` CRUD semantics. This capability does not promise
-cross-provider query languages, transaction support, index management, or consistent pagination.
-Provider plugins own client startup and shutdown; close a directly constructed database with
-`await database.aclose()`. Closing is idempotent. Concurrent close callers wait for the same
-cleanup, and cancellation of a caller is propagated only after its owned resource cleanup finishes.
-Repositories obtained from a database are only valid while that database resource remains open.
+The returned repository follows `orbit-data` CRUD semantics. Its `list(limit=...)` operation is one
+bounded read, not cursor pagination. This capability does not promise cross-provider query
+languages, transaction support, index management, or consistent ordering across calls. Provider
+packages own client startup, configuration, and shutdown. Close the database with
+`await database.aclose()` or register it as an application-managed resource. Successful close is
+idempotent. Concurrent close callers wait for the same cleanup, and cancellation of a caller is
+propagated after owned resource cleanup finishes. Repositories created from a database are valid
+only while that database resource remains open.
 
 ```bash
 pip install orbit-data orbit-nosql orbit-nosql-mongo
 ```
 
-This package is pre-alpha; its API is not stable. It supports Python 3.11 through 3.14. Its
-provider-neutral contract test passes on all four supported Python versions.
+This package is in alpha and its API is not stable. It declares support for Python 3.11 through
+3.14; see CI results for the Python versions actually validated by each change.
 
 Licensed under Apache-2.0.
 

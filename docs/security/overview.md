@@ -1,17 +1,36 @@
 # Orbit NoSQL: security
 
-## Package-specific security guidance
+`orbit-nosql` defines types and lifecycle expectations; it does not connect to a database or enforce
+authorization. Secure transport, credentials, access control, query behavior, and stored data are
+responsibilities of the chosen provider adapter and deployment.
 
-The README does not define separate package-specific security guarantees. Follow the implemented API and provider documentation; do not infer security properties that are not documented and tested.
+## Data and authorization boundaries
 
-## Credentials and sensitive data
+Pydantic validation checks model shape, not whether a caller may access a record. Enforce tenant,
+user, and administrative authorization in application services before invoking the repository.
+Do not treat a collection name, key field, or successful model validation as an access-control
+decision.
 
-Use least-privilege credentials and a secret manager for provider secrets. Do not commit secrets, tokens, private keys, personal data, request bodies, raw provider errors, or opaque cursors. Enable TLS certificate verification for remote services unless package documentation gives a narrowly scoped local-development exception.
+Treat model fields as potentially sensitive. Avoid credentials and access tokens in entity keys or
+diagnostic text. Configure serializers and provider logging so secrets and personal data are not
+written to logs or traces. Review BSON/JSON serialization behavior for custom model serializers and
+aliases before storing sensitive fields.
 
-## Vulnerability disclosure
+## Provider configuration
 
-Follow the repository [security policy](../../SECURITY.md). Do not post vulnerability details in public issues. The policy describes private reporting alternatives without claiming that a hosting-platform setting is enabled.
+Use a dedicated database identity with the minimum collection permissions required. Store and
+rotate credentials through an approved secret-management mechanism. Require verified TLS for
+remote database connections and review certificate handling, network allow-lists, pool limits,
+encryption-at-rest, backup protection, and retention in the provider package and deployment.
 
-## Limits
+## Failure and lifecycle behavior
 
-This page records source and package documentation, not an independent security audit. Validate the package, its provider SDKs, and its deployment configuration before production use.
+`RepositoryConflictError` has a fixed provider-neutral message. Other failures are provider-specific;
+applications must avoid logging raw exceptions when the driver may include query values, document
+contents, connection strings, or credentials. Close the database during application shutdown and
+verify cleanup behavior after cancellation and provider errors.
+
+## Vulnerability reporting
+
+Follow the repository [security policy](../../SECURITY.md) for private reporting. This guidance
+does not certify any provider adapter or deployment as secure.

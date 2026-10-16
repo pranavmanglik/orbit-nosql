@@ -1,59 +1,47 @@
-# Orbit NoSQL: operations and security
+# Orbit NoSQL: operations
 
-This guide organizes runtime behavior documented by the package. It does not certify production readiness. Verify provider/client versions, permissions, transport security, limits, and failure behavior in the target environment before release.
+This package defines a provider contract and has no runtime connection settings of its own. Install
+`orbit-data`, `orbit-nosql`, and the selected provider adapter separately. Configure endpoints,
+credentials, TLS, pools, timeouts, retries, and health checks through that adapter's documented
+configuration; there are no `ORBIT_*` environment variables defined here.
 
-## Configuration surface
+## Application wiring
 
-Environment names found in the package README:
+Construct and validate the provider database during application startup, then register it as an
+application-scoped managed resource when using Core. The owning application must await
+`database.aclose()` during shutdown. The provider's README should describe startup behavior, health
+checking, and cleanup failure semantics. Repository facades are cheap synchronous objects, but
+their operations depend on the live database resource.
 
-The package README does not name `ORBIT_*` variables. Use its typed constructors and application configuration, and confirm exact runtime inputs in the implementation before deployment.
+Avoid closing one provider client from multiple independent lifecycle hooks. This interface
+requires concurrent close callers to join the same cleanup and caller cancellation not to abandon
+resource release.
 
-Use the package README's constructor and deployment examples. Store credentials in a secret manager and avoid logging credentials, raw provider errors, request data, or opaque cursors.
+## CRUD, limits, and scale
 
-## Lifecycle, failure behavior, and limits
+The returned repository follows `orbit-data` semantics for `get`, `list`, `add`, `update`, and
+`delete`. `list(limit=...)` is a bounded single read; it is not cursor pagination, does not promise
+an ordering across calls, and does not provide a cross-call snapshot. Providers should impose a
+finite maximum list size. Use a vendor-supported cursor, streaming query, or export tool for large
+collections and document the provider dependency.
 
-`orbit-nosql` is the provider-neutral NoSQL capability layer. `orbit-data` remains the common
-repository contract shared by SQL and NoSQL implementations. This initial version uses Pydantic
-models as its entity type and defines how an application obtains an `orbit_data.Repository` for a
-named logical collection without importing a vendor driver.
+The capability does not define multi-document transactions, consistency levels, write concern,
+index creation, automatic schema creation, retries, or durability. Confirm the specific adapter's
+behavior before depending on those guarantees. Retry only operations that are safe under the
+provider's idempotency and consistency model.
 
-Providers live in separate packages. `orbit-nosql-mongo` supplies a document collection implementation;
-`orbit-cache-redis` may expose a key-value backed repository alongside its separate cache capability.
-The capability does not claim that transactions, secondary indexes, query languages, consistency,
-or collection semantics are identical across NoSQL systems. Provider-specific features remain
-explicit on their provider packages.
+## Readiness and failure handling
 
-```python
-from pydantic import BaseModel
-from orbit_nosql import NoSQLDatabase
+Creating a repository facade is synchronous and is not evidence that the database is reachable or
+the collection exists. Use an explicit provider health check or a bounded startup operation if the
+application must fail fast. Avoid unbounded startup retries. Translate errors at the application
+boundary without logging credentials, complete documents, query parameters, or raw provider
+response bodies.
 
+## Pre-release operational checks
 
-class Session(BaseModel):
-    id: str
-    owner_id: str
-
-
-async def load_session(database: NoSQLDatabase, session_id: str) -> Session | None:
-    sessions = database.repository("sessions", Session)
-    return await sessions.get(session_id)
-```
-
-The returned repository follows `orbit-data` CRUD semantics. This capability does not promise
-cross-provider query languages, transaction support, index management, or consistent pagination.
-Provider plugins own client startup and shutdown; close a directly constructed database with
-`await database.aclose()`. Closing is idempotent. Concurrent close callers wait for the same
-cleanup, and cancellation of a caller is propagated only after its owned resource cleanup finishes.
-Repositories obtained from a database are only valid while that database resource remains open.
-
-```bash
-pip install orbit-data orbit-nosql orbit-nosql-mongo
-```
-
-This package is pre-alpha; its API is not stable. It supports Python 3.11 through 3.14. Its
-provider-neutral contract test passes on all four supported Python versions.
-
-Licensed under Apache-2.0.
-
-## Production validation
-
-Validate startup/shutdown cleanup, timeout and cancellation behavior, concurrency and payload bounds where applicable, secret rotation and least-privilege access, data durability, backup/restore, and failover against the selected provider. Do not infer distributed or durable guarantees from an in-process API or fake-client tests.
+In a disposable environment using the actual adapter, validate connection limits, timeout behavior,
+cancelled operations, shutdown while work is in flight, client cleanup, and provider-specific
+consistency and durability expectations. Exercise backup and restore, index deployment, and
+credential rotation according to the backend. Contract tests in this repository do not validate a
+live database.

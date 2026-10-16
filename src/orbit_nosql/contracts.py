@@ -28,13 +28,22 @@ KeyT = TypeVar("KeyT", contravariant=True)
 class NoSQLDatabase(Protocol):
     """Create typed repositories for Pydantic models in logical collections.
 
-    Implementations must validate collection names, avoid implicit schema creation unless
-    documented, and return repositories that satisfy `orbit_data.Repository`. A returned
-    repository is bound to the database resource and must not be used after it is closed.
-    Transaction, query/filter, consistency and index behavior are provider-specific and must not
-    be inferred from this contract. The database owns its client/pool and must release it from
-    `aclose`; concurrent close calls must await the same cleanup, and caller cancellation must not
-    interrupt resource release.
+    ``repository`` is a synchronous factory for a lightweight facade; it does not promise that a
+    remote collection exists or that schema/index setup has completed. Implementations validate
+    collection and key-field names and must document whether requesting a repository can create a
+    collection or make a network request. The model is a Pydantic ``BaseModel`` subclass used for
+    document validation and serialization; providers must document any restrictions on supported
+    field types, aliases, custom serializers, and key conversion.
+
+    A returned repository must satisfy ``orbit_data.Repository`` and is bound to this database's
+    lifecycle. It must not be retained or used after the database is closed. The database owns its
+    client or pool and releases it through ``aclose``. Successful close is idempotent; concurrent
+    callers must await the same cleanup operation. Caller cancellation must not abandon owned
+    resource cleanup, although it must eventually propagate to the caller.
+
+    This contract does not unify query/filter languages, transactions, index management,
+    collection creation, read consistency, ordering, pagination, or durability. These are
+    provider-specific capabilities and must not be inferred from the shared CRUD repository.
     """
 
     def repository(
@@ -44,10 +53,24 @@ class NoSQLDatabase(Protocol):
         *,
         key_field: str = "id",
     ) -> Repository[EntityT, KeyT]:
-        """Return a typed repository bound to one existing or provider-created collection."""
+        """Return a typed CRUD facade for ``collection`` and ``model``.
+
+        ``collection`` names one provider collection, while ``key_field`` identifies the entity
+        field used by ``Repository.get``, ``update``, and ``delete``. The default is ``"id"``.
+        Implementations should validate both strings and define how the selected field maps to the
+        provider's native key (for example a MongoDB document's ``_id``). This method is
+        synchronous so object wiring does not require network I/O; provider initialization and
+        connectivity checks belong to construction or explicit health checks.
+        """
 
     async def aclose(self) -> None:
-        """Idempotently release resources before propagating caller cancellation."""
+        """Release this database's client or pool and wait for cleanup to finish.
+
+        Concurrent callers await the same close operation. A successful close is idempotent.
+        Cancellation of a caller must not abandon the owned cleanup task; after cleanup completes,
+        cancellation propagates. Provider cleanup failures remain visible, but their messages must
+        not contain credentials or other sensitive configuration.
+        """
 
 
 __all__ = ["NoSQLDatabase"]
